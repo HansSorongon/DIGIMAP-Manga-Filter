@@ -1,116 +1,204 @@
+import os
 import cv2
 import numpy as np
-from tkinter import Tk, filedialog
+import customtkinter as ctk
+from tkinter import filedialog, messagebox, PhotoImage
+from PIL import Image, ImageTk
 
-def soft_threshold(image, phi, epsilon):
-    return np.tanh(phi * (image - epsilon))
+class MangaFilterApp:
+    def __init__(self, root):
+        ctk.set_appearance_mode("dark")
+        ctk.set_default_color_theme("blue")
+        
+        self.root = root
+        self.root.title("Manga Filter App")
+        self.root.geometry("1200x600")
 
-def xdog(image, sigma_one, k, sharpen, epsilon, phi):
-    rescaled = image.astype(np.float32) / 255.0
-    img_a = cv2.GaussianBlur(rescaled, (0, 0), sigmaX=sigma_one)
-    img_b = cv2.GaussianBlur(rescaled, (0, 0), sigmaX=sigma_one * k)
-    scaled_diff = (sharpen + 1) * img_a - sharpen * img_b
-    sharpened = rescaled * scaled_diff * 255
-    mask = (rescaled * scaled_diff > epsilon).astype(np.float32)
-    inverse_mask = 1.0 - mask
-    soft_thresholded = 1.0 + np.tanh(phi * (sharpened / 255.0 - epsilon))
-    result = (mask + inverse_mask * soft_thresholded) * 255.0
-    return np.clip(result, 0, 255).astype(np.uint8)
+        self.main_frame = ctk.CTkFrame(root)
+        self.main_frame.pack(padx=20, pady=20, fill="both", expand=True)
 
-def scale_image(image, scale_percent):
-    width = int(image.shape[1] * scale_percent / 100)
-    height = int(image.shape[0] * scale_percent / 100)
-    return cv2.resize(image, (width, height), interpolation=cv2.INTER_AREA)
+        self.left_frame = ctk.CTkFrame(self.main_frame)
+        self.left_frame.pack(side="left", padx=10, pady=10, fill="both", expand=True)
 
-def blend_dark_areas_with_hatch(image, hatch_path, percentiles=(10, 15, 50), alpha=2):
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    hatch = cv2.imread(hatch_path, cv2.IMREAD_GRAYSCALE)
-    hatch = cv2.resize(hatch, (image.shape[1], image.shape[0]))
-
-    combined_mask = np.zeros_like(gray)
-    kernel = np.ones((9, 9), np.uint8)
-    
-    for percentile in percentiles:
-        threshold = np.percentile(gray, percentile)
-        dark_mask = cv2.morphologyEx(
-            cv2.morphologyEx((gray < threshold).astype(np.uint8) * 255, 
-                             cv2.MORPH_OPEN, kernel), 
-            cv2.MORPH_CLOSE, kernel
+        self.image_label = ctk.CTkLabel(
+            self.left_frame, 
+            text="", 
+            width=400, 
+            height=400
         )
-        combined_mask = cv2.bitwise_or(combined_mask, dark_mask)
+        self.image_label.pack(padx=10, pady=10)
 
-    hatch_3d = cv2.cvtColor(hatch, cv2.COLOR_GRAY2BGR)
-    hatch_masked = cv2.bitwise_and(hatch_3d, image)
-    return cv2.addWeighted(image, 1, hatch_masked, alpha, 0)
+        self.right_frame = ctk.CTkFrame(self.main_frame)
+        self.right_frame.pack(side="right", padx=10, pady=10, fill="y")
 
-def dither(image, pixel_distance=5, pixel_threshold=128, diagonal=False):
-    dithered_image = image.copy()
-    rows, cols = image.shape
-    
-    for i in range(0, rows, pixel_distance):
-        for j in range(0, cols, pixel_distance):
-            if dithered_image[i][j] < pixel_threshold:
-                dithered_image[i][j] = 127
-                
-                if diagonal and i + pixel_distance // 2 < rows and j + pixel_distance // 2 < cols:
-                    dithered_image[i + pixel_distance // 2][j + pixel_distance // 2] = 127
-    
-    return dithered_image
+        self.sliders = {}
+        slider_configs = [
+            ("Sigma", 0, 15, 3, 10),
+            ("k", 0, 100, 20, 10),
+            ("Sharpen", 0, 50, 20, 1),
+            ("Phi", 0, 50, 10, 1),
+            ("Epsilon", 0, 50, 15, 100),
+            ("Scale", 0, 200, 100, 1)
+        ]
 
-def update_view(x):
-    try:
-        sigma = cv2.getTrackbarPos('Sigma', 'Manga Filter') / 10.0
-        k = cv2.getTrackbarPos('k', 'Manga Filter') / 10.0
-        sharpen = cv2.getTrackbarPos('Sharpen', 'Manga Filter')
-        epsilon = cv2.getTrackbarPos('Epsilon', 'Manga Filter') / 100.0
-        phi = cv2.getTrackbarPos('Phi', 'Manga Filter')
-        scale = cv2.getTrackbarPos('Scale', 'Manga Filter')
+        for name, min_val, max_val, default, divisor in slider_configs:
+            self.create_slider(name, min_val, max_val, default, divisor)
+
+        self.load_button = ctk.CTkButton(
+            self.right_frame, 
+            text="Load Image", 
+            command=self.load_image
+        )
+        self.load_button.pack(padx=10, pady=5)
+
+        self.save_button = ctk.CTkButton(
+            self.right_frame, 
+            text="Save Image", 
+            command=self.save_image,
+            state="disabled"
+        )
+        self.save_button.pack(padx=10, pady=5)
+
+        self.original_image = None
+        self.processed_image = None
+
+    def create_slider(self, name, min_val, max_val, default, divisor):
+        slider_frame = ctk.CTkFrame(self.right_frame)
+        slider_frame.pack(padx=10, pady=5, fill="x")
+
+        label = ctk.CTkLabel(slider_frame, text=name)
+        label.pack(side="left", padx=(0, 10))
+
+        slider = ctk.CTkSlider(
+            slider_frame, 
+            from_=min_val, 
+            to=max_val, 
+            number_of_steps=max_val,
+            command=lambda value, n=name, d=divisor: self.update_image(n, value, d)
+        )
+        slider.set(default)
+        slider.pack(side="left", expand=True, fill="x", padx=(0, 10))
+
+        value_label = ctk.CTkLabel(slider_frame, text=str(default))
+        value_label.pack(side="right")
+
+        self.sliders[name] = {
+            'slider': slider, 
+            'value_label': value_label
+        }
+
+    def load_image(self):
+        filepath = filedialog.askopenfilename(
+            filetypes=[
+                ("Image Files", "*.jpg *.jpeg *.png *.bmp *.tiff *.webp")
+            ]
+        )
         
-        result = xdog(image, sigma, k, sharpen, epsilon, phi)
+        if not filepath:
+            return
 
-        # -- STYLIZE
+        try:
+            self.original_image = cv2.imread(filepath, cv2.IMREAD_GRAYSCALE)
+            
+            self.original_image = self.scale_image(self.original_image, 50)
 
-        # result = cv2.GaussianBlur(result, (1, 1), 0)
-        # _, result = cv2.threshold(result, 40, 255, cv2.THRESH_BINARY)
-        # result = dither(result, pixel_threshold = 128)
+            self.process_image()
 
-        result = scale_image(result, scale)
+            self.save_button.configure(state="normal")
+
+            height, width = self.original_image.shape
+            window_width = width + 400
+            window_height = height + 200
+            self.root.geometry(f"{window_width}x{window_height}")
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not load image: {str(e)}")
+
+    def save_image(self):
+        if self.processed_image is None:
+            messagebox.showwarning("Warning", "No image to save")
+            return
+
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".png",
+            filetypes=[("PNG files", "*.png"), ("JPEG files", "*.jpg"), ("All files", "*.*")]
+        )
         
-        cv2.imshow('Manga Filter', result)
+        if filepath:
+            try:
+                cv2.imwrite(filepath, self.processed_image)
+                messagebox.showinfo("Success", "Image saved successfully!")
+            except Exception as e:
+                messagebox.showerror("Error", f"Could not save image: {str(e)}")
 
-    except cv2.error as e:
-        print(f"Error in update_view: {e}")
+    def update_image(self, name, value, divisor):
+        self.sliders[name]['value_label'].configure(text=str(int(value)))
+        
+        if self.original_image is not None:
+            self.process_image()
 
-def select_image():
-    root = Tk()
-    root.withdraw()
-    return filedialog.askopenfilename(filetypes=[("Image Files", "*.jpg *.jpeg *.png *.bmp *.tiff *.webp")])
+    def process_image(self):
+        sigma = self.sliders['Sigma']['slider'].get() / 10.0
+        k = self.sliders['k']['slider'].get() / 10.0
+        sharpen = self.sliders['Sharpen']['slider'].get()
+        epsilon = self.sliders['Epsilon']['slider'].get() / 100.0
+        phi = self.sliders['Phi']['slider'].get()
+        scale = self.sliders['Scale']['slider'].get()
+
+        result = self.xdog(
+            self.original_image, 
+            sigma, k, sharpen, epsilon, phi
+        )
+
+        result = self.dither(result)
+        result = self.scale_image(result, scale)
+
+        self.processed_image = result
+
+        self.display_image(result)
+
+    def display_image(self, cv_image):
+        pil_image = Image.fromarray(cv_image)
+        photo = ImageTk.PhotoImage(pil_image)
+        
+        self.image_label.configure(image=photo)
+        self.image_label.image = photo
+
+    def xdog(self, image, sigma_one, k, sharpen, epsilon, phi):
+        rescaled = image.astype(np.float32) / 255.0
+        img_a = cv2.GaussianBlur(rescaled, (0, 0), sigmaX=sigma_one)
+        img_b = cv2.GaussianBlur(rescaled, (0, 0), sigmaX=sigma_one * k)
+        scaled_diff = (sharpen + 1) * img_a - sharpen * img_b
+        sharpened = rescaled * scaled_diff * 255
+        mask = (rescaled * scaled_diff > epsilon).astype(np.float32)
+        inverse_mask = 1.0 - mask
+        soft_thresholded = 1.0 + np.tanh(phi * (sharpened / 255.0 - epsilon))
+        result = (mask + inverse_mask * soft_thresholded) * 255.0
+        return np.clip(result, 0, 255).astype(np.uint8)
+
+    def scale_image(self, image, scale_percent):
+        width = int(image.shape[1] * scale_percent / 100)
+        height = int(image.shape[0] * scale_percent / 100)
+        return cv2.resize(image, (width, height), interpolation=cv2.INTER_AREA)
+
+    def dither(self, image, pixel_distance=5, pixel_threshold=128, diagonal=False):
+        dithered_image = image.copy()
+        rows, cols = image.shape
+        
+        for i in range(0, rows, pixel_distance):
+            for j in range(0, cols, pixel_distance):
+                if dithered_image[i][j] < pixel_threshold:
+                    dithered_image[i][j] = 127
+                    
+                    if diagonal and i + pixel_distance // 2 < rows and j + pixel_distance // 2 < cols:
+                        dithered_image[i + pixel_distance // 2][j + pixel_distance // 2] = 127
+        
+        return dithered_image
 
 def main():
-    filepath = select_image()
-    if not filepath:
-        print("No image selected. Exiting...")
-        return
-
-    global image
-    image = cv2.imread(filepath, cv2.IMREAD_GRAYSCALE)
-    if image is None:
-        print("Error: Unable to load the image.")
-        return
-
-    image = scale_image(image, 50)
-
-    cv2.namedWindow('Manga Filter')
-    cv2.createTrackbar('Scale', 'Manga Filter', 100, 100, update_view)
-    cv2.createTrackbar('Sigma', 'Manga Filter', 3, 100, update_view)
-    cv2.createTrackbar('k', 'Manga Filter', 19, 100, update_view)
-    cv2.createTrackbar('Sharpen', 'Manga Filter', 19, 50, update_view)
-    cv2.createTrackbar('Phi', 'Manga Filter', 10, 50, update_view)
-    cv2.createTrackbar('Epsilon', 'Manga Filter', 15, 50, update_view)
-
-    update_view(0)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    root = ctk.CTk()
+    app = MangaFilterApp(root)
+    root.mainloop()
 
 if __name__ == "__main__":
     main()
