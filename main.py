@@ -38,11 +38,14 @@ class MangaFilterApp:
             ("Sharpen", 0, 50, 20, 1),
             ("Phi", 0, 50, 10, 1),
             ("Epsilon", 0, 50, 15, 100),
-            ("Scale", 0, 200, 100, 1)
+            ("Scale", 1, 100, 100, 1),
+            ("Dither Dist.", 1, 10, 5, 1)
         ]
 
         for name, min_val, max_val, default, divisor in slider_configs:
             self.create_slider(name, min_val, max_val, default, divisor)
+
+        self.create_dither_switch()
 
         self.load_button = ctk.CTkButton(
             self.right_frame, 
@@ -61,6 +64,21 @@ class MangaFilterApp:
 
         self.original_image = None
         self.processed_image = None
+        self.is_dithering = False
+
+    def create_dither_switch(self):
+        switch_frame = ctk.CTkFrame(self.right_frame)
+        switch_frame.pack(padx=10, pady=5, fill="x")
+        
+        label = ctk.CTkLabel(switch_frame, text="Dithering")
+        label.pack(side="left", padx=(0, 10))
+        
+        self.dither_switch = ctk.CTkSwitch(
+            switch_frame, 
+            text="Off",
+            command=self.toggle_dither
+        )
+        self.dither_switch.pack(side="right")
 
     def create_slider(self, name, min_val, max_val, default, divisor):
         slider_frame = ctk.CTkFrame(self.right_frame)
@@ -107,9 +125,6 @@ class MangaFilterApp:
             self.save_button.configure(state="normal")
 
             height, width = self.original_image.shape
-            window_width = width + 400
-            window_height = height + 200
-            self.root.geometry(f"{window_width}x{window_height}")
 
         except Exception as e:
             messagebox.showerror("Error", f"Could not load image: {str(e)}")
@@ -137,6 +152,16 @@ class MangaFilterApp:
         if self.original_image is not None:
             self.process_image()
 
+    def toggle_dither(self):
+        self.is_dithering = not self.is_dithering
+        
+        self.dither_switch.configure(
+            text="On" if self.is_dithering else "Off"
+        )
+        
+        if self.original_image is not None:
+            self.process_image()
+
     def process_image(self):
         sigma = self.sliders['Sigma']['slider'].get() / 10.0
         k = self.sliders['k']['slider'].get() / 10.0
@@ -144,13 +169,16 @@ class MangaFilterApp:
         epsilon = self.sliders['Epsilon']['slider'].get() / 100.0
         phi = self.sliders['Phi']['slider'].get()
         scale = self.sliders['Scale']['slider'].get()
+        pixel_distance = self.sliders['Dither Dist.']['slider'].get()
 
         result = self.xdog(
             self.original_image, 
             sigma, k, sharpen, epsilon, phi
         )
 
-        result = self.dither(result)
+        if self.is_dithering:
+            result = self.dither(result, pixel_distance=int(pixel_distance))
+        
         result = self.scale_image(result, scale)
 
         self.processed_image = result
@@ -159,7 +187,7 @@ class MangaFilterApp:
 
     def display_image(self, cv_image):
         pil_image = Image.fromarray(cv_image)
-        photo = ImageTk.PhotoImage(pil_image)
+        photo = ctk.CTkImage(light_image=pil_image, size=(pil_image.width, pil_image.height))
         
         self.image_label.configure(image=photo)
         self.image_label.image = photo
@@ -181,18 +209,16 @@ class MangaFilterApp:
         height = int(image.shape[0] * scale_percent / 100)
         return cv2.resize(image, (width, height), interpolation=cv2.INTER_AREA)
 
-    def dither(self, image, pixel_distance=5, pixel_threshold=128, diagonal=False):
+    def dither(self, image, pixel_distance=5, pixel_threshold=128, diagonal=True):
         dithered_image = image.copy()
         rows, cols = image.shape
         
         for i in range(0, rows, pixel_distance):
             for j in range(0, cols, pixel_distance):
                 if dithered_image[i][j] < pixel_threshold:
+
                     dithered_image[i][j] = 127
-                    
-                    if diagonal and i + pixel_distance // 2 < rows and j + pixel_distance // 2 < cols:
-                        dithered_image[i + pixel_distance // 2][j + pixel_distance // 2] = 127
-        
+
         return dithered_image
 
 def main():
