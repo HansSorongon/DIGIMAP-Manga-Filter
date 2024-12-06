@@ -20,6 +20,8 @@ class MangaFilterApp:
         self.left_frame = ctk.CTkFrame(self.main_frame)
         self.left_frame.pack(side="left", padx=10, pady=10, fill="both", expand=True)
 
+        self.is_threshold = False
+
         self.image_label = ctk.CTkLabel(
             self.left_frame, 
             text="", 
@@ -46,6 +48,7 @@ class MangaFilterApp:
             self.create_slider(name, min_val, max_val, default, divisor)
 
         self.create_dither_switch()
+        self.create_threshold_switch()
 
         self.load_button = ctk.CTkButton(
             self.right_frame, 
@@ -79,6 +82,30 @@ class MangaFilterApp:
             command=self.toggle_dither
         )
         self.dither_switch.pack(side="right")
+
+    def create_threshold_switch(self):
+        switch_frame = ctk.CTkFrame(self.right_frame)
+        switch_frame.pack(padx=10, pady=5, fill="x")
+        
+        label = ctk.CTkLabel(switch_frame, text="Black & White Threshold")
+        label.pack(side="left", padx=(0, 10))
+        
+        self.threshold_switch = ctk.CTkSwitch(
+            switch_frame, 
+            text="Off",
+            command=self.toggle_threshold
+        )
+        self.threshold_switch.pack(side="right")
+
+    def toggle_threshold(self):
+        self.is_threshold = not self.is_threshold
+        
+        self.threshold_switch.configure(
+            text="On" if self.is_threshold else "Off"
+        )
+        
+        if self.original_image is not None:
+            self.process_image()
 
     def create_slider(self, name, min_val, max_val, default, divisor):
         slider_frame = ctk.CTkFrame(self.right_frame)
@@ -170,11 +197,15 @@ class MangaFilterApp:
         phi = self.sliders['Phi']['slider'].get()
         scale = self.sliders['Scale']['slider'].get()
         pixel_distance = self.sliders['Dither Dist.']['slider'].get()
+        threshold_value = 128  # Set the threshold value here
 
         result = self.xdog(
             self.original_image, 
             sigma, k, sharpen, epsilon, phi
         )
+
+        if self.is_threshold:
+            result = self.apply_threshold(result, threshold_value)
 
         if self.is_dithering:
             result = self.dither(result, pixel_distance=int(pixel_distance))
@@ -184,6 +215,10 @@ class MangaFilterApp:
         self.processed_image = result
 
         self.display_image(result)
+
+    def apply_threshold(self, image, threshold_value):
+        _, binary_image = cv2.threshold(image, threshold_value, 255, cv2.THRESH_BINARY)
+        return binary_image
 
     def display_image(self, cv_image):
         pil_image = Image.fromarray(cv_image)
