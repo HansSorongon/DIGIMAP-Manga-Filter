@@ -1,5 +1,7 @@
 # Manga Filter App
 
+![Sample Image](sample_imgs/1.png)
+
 The Manga Filter App is a desktop application that allows users to apply artistic manga-style filters to images, inspired by the unique aesthetic of manga art. This project aims to make manga-style image editing accessible to anyone, bridging the gap between professional tools and casual users who want to create stylized artwork. This Python-based application uses customtkinter for its user interface and provides multiple sliders and switches for real-time image processing adjustments. The app supports features such as dithering, black-and-white thresholding, and custom image scaling, enabling users to easily transform their images into manga-style creations.
 
 ## Features
@@ -42,10 +44,12 @@ The Manga Filter App is a desktop application that allows users to apply artisti
 
 1. Clone the repository or download the source code.
 2. Install the required dependencies using pip:
+   
    ```bash
    pip install opencv-python numpy customtkinter Pillow
    ```
 3. Run the application:
+
    ```bash
    python main.py
    ``` 
