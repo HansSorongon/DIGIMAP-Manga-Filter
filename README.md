@@ -70,3 +70,9 @@ The Manga Filter App is a desktop application that allows users to apply artisti
 5. Preview the filtered image in real-time.
 6. Save the processed image using the **Save Image** button.  
  
+ ---
+
+## Acknowledgments
+
+- Inspired by the unique art styles found in manga and anime.
+- Developed with Python and OpenCV, aligning with the principles and creative objectives explored in the course DIGIMAP.
